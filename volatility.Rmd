@@ -1,0 +1,274 @@
+```{r setup, include=FALSE}
+library(vrtest)
+library(tseries)
+library(quantmod) 
+library(forecast)
+library(ggplot2) 
+library(ggfortify)
+library(dplyr)
+library(gridExtra)
+library(rugarch)
+library(FinTS) 
+library(ConnectednessApproach) 
+
+```
+
+
+```{r}
+btc_data <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2018-01-01", to = "2023-01-01")
+btc_data <- btc_data |> janitor::clean_names()
+
+```
+```{r}
+chartSeries(btc_data)
+```
+
+
+```{r}
+btc_returns <- data.frame(btc_data) |> 
+  mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
+  na.omit() 
+btc_returns <- btc_returns |> mutate(Date = as.Date(rownames(btc_returns)))
+```
+```{r}
+waveplot1 <- ggplot(data = btc_returns, aes(x = Date, y = btc_usd_close )) +
+  geom_line() +
+  labs(title = 'Wave plot', x = 'Time', y = 'Close price') +
+  theme_minimal()
+waveplot1
+waveplot2 <- ggplot(data = btc_returns, aes(x =Date , y = Return)) +
+  geom_line() +
+  labs( x = 'Time', y = 'Log return') +
+  theme_minimal()
+waveplot2
+histogram_close <- ggplot(data = btc_data, aes(x = btc_usd_close)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "Histogram of BTC Closing Prices", x = "BTC/USD Closing Price", y = "Frequency") +
+  theme_minimal()
+histogram_close
+
+histogram_return <- ggplot(data = btc_returns, aes(x = Return)) +
+  geom_histogram(bins = 30, fill = "skyblue", color = "black") +
+  labs(title = "Histogram of BTC Return", x = "Return", y = "Frequency") +
+  theme_minimal()
+histogram_return
+grid.arrange(waveplot1, histogram_close,waveplot2,histogram_return,ncol = 2)
+
+```
+```{r}
+volatilityRoll <- runSD(btc_returns$Return, n = 30) 
+volatilityEst <- data.frame(coredata(btc_returns),
+  Volatility = volatilityRoll
+) |>   na.omit() 
+
+
+volatilityPlotEst <- ggplot(volatilityEst, aes(x = Date, y = Return)) +
+  geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = Volatility),color = "darkblue") +
+  labs(
+    title = "30-Day Rolling Volatility",
+    y = "Volatility",
+    x = "Date"
+  ) +
+  theme_minimal()
+volatilityPlotEst
+```
+```{r}
+acf_values <- acf(btc_returns$Return,plot = F)
+acf_df <- acf_df <- data.frame(lag = acf_values$lag, acf = acf_values$acf)
+
+acfplot <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(btc_returns$Return)), 1.96/sqrt(length(btc_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (ACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+pacf_values <- pacf(btc_returns$Return**2,plot = F)
+pacf_df <- pacf_df <- data.frame(lag = pacf_values$lag, acf = pacf_values$acf)
+
+pacfplot <- ggplot(pacf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(btc_returns$Return)), 1.96/sqrt(length(btc_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (PACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+grid.arrange( acfplot,pacfplot,ncol = 1)
+```
+```{r}
+adf.test(btc_returns$Return )
+```
+```{r}
+Lo.Mac(btc_returns$Return,c(2,3,5,10))
+```
+```{r}
+arch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,0)),
+                         distribution.model = "norm"	,
+                         mean.model = list(armaOrder = c(0,0)))
+arch_fit <- ugarchfit(spec = arch_spec, data = btc_returns["Return"])
+print(arch_fit)
+```
+```{r}
+par(mfrow = c(2,3))
+plot(arch_fit,which = 8)
+plot(arch_fit,which = 9)
+plot(arch_fit,which = 10)
+plot(arch_fit,which = 11)
+plot(arch_fit,which = 12)
+```
+```{r}
+uncvariance(arch_fit)
+uncmean(arch_fit)
+```
+```{r}
+volatilityArch <- data.frame(coredata(btc_returns), VolatilityArch = sigma(arch_fit))
+volatilityPlotArch<- ggplot(volatilityArch, aes(x = Date, y = Return)) +
+  geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = VolatilityArch),color = "darkblue") + 
+  labs(
+    title = "Arch(1)",
+    y = "Volatility",
+    x = "Date"
+  ) +
+  theme_minimal()
+volatilityPlotArch
+```
+
+```{r}
+plot(volatilityArch[rownames(volatilityEst),]$VolatilityArch,volatilityEst$Volatility)
+```
+```{r}
+forecastArch <- ugarchforecast(arch_fit, n.ahead = 50)
+plot(sigma(forecastArch),type = "l")
+abline(h = uncvariance(arch_fit)**(1/2)
+, col = "red", lty = 2)  
+```
+
+
+
+```{r}
+returnlist <-  btc_returns$Return
+garch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                         distribution.model = "norm"	,
+                         mean.model = list(armaOrder = c(1,1)))
+garch_fit <- ugarchfit(spec = garch_spec, data = btc_returns["Return"])
+print(garch_fit)
+```
+
+
+
+
+
+
+```{r}
+ArchTest(residuals(garch_fit), lag = 100)
+```
+```{r}
+par(mfrow = c(2,3))
+plot(garch_fit,which = 8)
+plot(garch_fit,which = 9)
+plot(garch_fit,which = 10)
+plot(garch_fit,which = 11)
+plot(garch_fit,which = 12)
+```
+
+
+
+
+```{r}
+garch_specstd <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                         distribution.model = "std"	,
+                         mean.model = list(armaOrder = c(1,1)))
+garch_fitStd <- ugarchfit(spec = garch_specstd, data = btc_returns["Return"])
+plot(garch_fitStd,which = 8)
+```
+
+```{r}
+plot(garch_fitStd,which = 9)
+
+```
+
+
+
+
+```{r}
+uncvariance(garch_fitStd)
+uncmean(garch_fitStd)
+```
+```{r}
+volatilityGarch <- data.frame(coredata(btc_returns), VolatilityGarch = sigma(garch_fitStd))
+volatilityPlotGarch<- ggplot(volatilityGarch, aes(x = Date, y = Return)) +
+  geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = VolatilityGarch),color = "darkblue")+
+  labs(
+    title = "Garch(1,1)",
+    y = "Volatility",
+    x = "Date"
+  ) +
+  theme_minimal()
+volatilityPlotGarch
+```
+
+
+```{r}
+plot(volatilityGarch[rownames(volatilityEst), ]$VolatilityGarch, volatilityEst$Volatility,
+     xlab = "Volatility Garch", ylab = "Volatility Estimate",
+     main = "Plot of VolatilityGarch vs Volatility Estimate")
+
+
+```
+
+
+
+```{r}
+forecastGarchstd <- ugarchforecast(garch_fitStd, n.ahead = 50)
+forecastGarch <- ugarchforecast(garch_fit, n.ahead = 50)
+plot(sigma(forecastGarch),type = "l",ylim = c(0, .2))
+lines(sigma(forecastGarchstd), type ='l', col = "green")
+abline(h = uncvariance(garch_fit)**(1/2)
+, col = "red", lty = 2)  
+abline(h = uncvariance(garch_fitStd)**(1/2)
+, col = "blue", lty = 2)  
+```
+
+
+
+```{r}
+btc_data_new <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2023-01-01", to = "2024-01-01")
+btc_data_new <- btc_data_new |> janitor::clean_names()
+btc_data_new <- data.frame(btc_data_new) |> 
+  mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
+  na.omit() 
+btc_data_new <- btc_data_new |> mutate(Date = as.Date(rownames(btc_data_new)))
+```
+```{r}
+progarchspec <- garch_spec
+setfixed(progarchspec) <- as.list(coef(garch_fit))
+garchfilter <- ugarchfilter(data = btc_data_new["Return"], spec = progarchspec)
+plot(sigma(garchfilter))
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
