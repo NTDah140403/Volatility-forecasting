@@ -274,7 +274,8 @@ waveplot2
 
 ```{r}
 volatilityGarch_new <- data.frame(coredata(btc_data_new), volatilityGarch_new = sigma(garchfilter))
-volatilityPlotGarch_new<- ggplot(volatilityGarch_new, aes(x = Date, y = Return)) +
+volatilityGarch_new$volatilityGarch_new <- volatilityGarch_new$volatilityGarch_new*1000000
+volatilityPlotGarch_new<- ggplot(volatilityGarch_new, aes(x = Date, y = btc_data_new$btc_usd_close)) +
   geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = volatilityGarch_new),color = "darkblue")+
   labs(
     title = "Garch(1,1)",
