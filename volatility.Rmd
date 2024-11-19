@@ -16,7 +16,7 @@ library(ConnectednessApproach)
 
 ```{r}
 btc_data <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
-                       from = "2018-01-01", to = "2023-01-01")
+                       from = "2018-01-01", to = "2024-01-01")
 btc_data <- btc_data |> janitor::clean_names()
 
 ```
@@ -31,6 +31,7 @@ btc_returns <- data.frame(btc_data) |>
   na.omit() 
 btc_returns <- btc_returns |> mutate(Date = as.Date(rownames(btc_returns)))
 ```
+
 ```{r}
 waveplot1 <- ggplot(data = btc_returns, aes(x = Date, y = btc_usd_close )) +
   geom_line() +
@@ -99,9 +100,11 @@ grid.arrange( acfplot,pacfplot,ncol = 1)
 ```{r}
 adf.test(btc_returns$Return )
 ```
+
 ```{r}
 Lo.Mac(btc_returns$Return,c(2,3,5,10))
 ```
+
 ```{r}
 arch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,0)),
                          distribution.model = "norm"	,
@@ -109,6 +112,7 @@ arch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1
 arch_fit <- ugarchfit(spec = arch_spec, data = btc_returns["Return"])
 print(arch_fit)
 ```
+
 ```{r}
 par(mfrow = c(2,3))
 plot(arch_fit,which = 8)
@@ -117,10 +121,12 @@ plot(arch_fit,which = 10)
 plot(arch_fit,which = 11)
 plot(arch_fit,which = 12)
 ```
+
 ```{r}
 uncvariance(arch_fit)
 uncmean(arch_fit)
 ```
+
 ```{r}
 volatilityArch <- data.frame(coredata(btc_returns), VolatilityArch = sigma(arch_fit))
 volatilityPlotArch<- ggplot(volatilityArch, aes(x = Date, y = Return)) +
@@ -163,6 +169,7 @@ print(garch_fit)
 ```{r}
 ArchTest(residuals(garch_fit), lag = 100)
 ```
+
 ```{r}
 par(mfrow = c(2,3))
 plot(garch_fit,which = 8)
@@ -234,13 +241,16 @@ abline(h = uncvariance(garch_fitStd)**(1/2)
 
 ```{r}
 btc_data_new <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
-                       from = "2023-01-01", to = "2024-01-01")
+                       from = "2024-01-01", to = "2024-11-18")
 btc_data_new <- btc_data_new |> janitor::clean_names()
 btc_data_new <- data.frame(btc_data_new) |> 
   mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
   na.omit() 
 btc_data_new <- btc_data_new |> mutate(Date = as.Date(rownames(btc_data_new)))
 ```
+
+
+
 ```{r}
 progarchspec <- garch_spec
 setfixed(progarchspec) <- as.list(coef(garch_fit))
@@ -248,12 +258,32 @@ garchfilter <- ugarchfilter(data = btc_data_new["Return"], spec = progarchspec)
 plot(sigma(garchfilter))
 ```
 
+```{r}
+waveplot1 <- ggplot(data = btc_data_new, aes(x = Date, y = btc_usd_close )) +
+  geom_line() +
+  labs(title = 'Wave plot', x = 'Time', y = 'Close price') +
+  theme_minimal()
+waveplot1
 
+waveplot2 <- ggplot(data = btc_data_new, aes(x =Date , y = Return)) +
+  geom_line() +
+  labs( x = 'Time', y = 'Log return') +
+  theme_minimal()
+waveplot2
+```
 
-
-
-
-
+```{r}
+volatilityGarch_new <- data.frame(coredata(btc_data_new), volatilityGarch_new = sigma(garchfilter))
+volatilityPlotGarch_new<- ggplot(volatilityGarch_new, aes(x = Date, y = Return)) +
+  geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = volatilityGarch_new),color = "darkblue")+
+  labs(
+    title = "Garch(1,1)",
+    y = "Volatility",
+    x = "Date"
+  ) +
+  theme_minimal()
+volatilityPlotGarch_new
+```
 
 
 
