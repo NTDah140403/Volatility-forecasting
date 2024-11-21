@@ -274,32 +274,78 @@ waveplot2
 
 ```{r}
 volatilityGarch_new <- data.frame(coredata(btc_data_new), volatilityGarch_new = sigma(garchfilter))
-volatilityGarch_new$volatilityGarch_new <- volatilityGarch_new$volatilityGarch_new*1000000
-volatilityPlotGarch_new<- ggplot(volatilityGarch_new, aes(x = Date, y = btc_data_new$btc_usd_close)) +
-  geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = volatilityGarch_new),color = "darkblue")+
-  labs(
-    title = "Garch(1,1)",
-    y = "Volatility",
-    x = "Date"
-  ) +
+```
+
+```{r}
+library(patchwork)
+library(gridExtra)
+
+price_plot <- ggplot(data = btc_data_new, aes(x = Date, y = btc_usd_close)) +
+  geom_line(color = "skyblue") +
+  labs(title = "BTC closed price", x = NULL, y = "Close Price") +
   theme_minimal()
-volatilityPlotGarch_new
+
+volatility_plot <- ggplot(data = volatilityGarch_new, aes(x = Date, y = volatilityGarch_new)) +
+  geom_line(color = "navy") +
+  labs(title = "Volatility", x = "Date", y = "Volatility") +
+  theme_minimal()
+
+price_plot / volatility_plot + 
+  plot_layout(heights = c(2, 1)) # Adjust relative heights
+
 ```
 
 
+```{r}
+test<-garch_fit@fit$coef
+```
+```{r}
+arima_model <- arima(btc_returns$Return,
+                     order = c(1, 0, 1),  # ARIMA(p, d, q)
+                     fixed = c(test["ar1"], test["ma1"], test["mu"]))  # Use coefficients
+summary(arima_model)
 
+predictions <- predict(arima_model, n.ahead = 322)
+```
 
+```{r}
+errors <- btc_data_new$Return - predictions$pred 
 
+# Calculate Metrics
+mse <- mean(errors^2)                          # Mean Squared Error
+rmse <- sqrt(mse)                              # Root Mean Squared Error
+mae <- mean(abs(errors))                       # Mean Absolute Error
 
+# Print Metrics
+cat("MSE:", mse, "\n")
+cat("RMSE:", rmse, "\n")
+cat("MAE:", mae, "\n")
+```
 
+```{r}
+adf.test(btc_returns$Return)
+```
+```{r}
+fit <- Arima(btc_returns$Return, order=c(3,1,1))
+fit
+```
+```{r}
+returnlist <-  fit$residuals
+garch_spec <- ugarchspec(variance.model = list(model = "sGARCH", garchOrder = c(1,1)),
+                         distribution.model = "norm"	,
+                         mean.model = list(armaOrder = c(3,1,1)))
+garch_fit <- ugarchfit(spec = garch_spec, data = btc_returns$btc_usd_close)
+print(garch_fit)
+```
 
-
-
-
-
-
-
-
+```{r}
+par(mfrow = c(2,3))
+plot(garch_fit,which = 8)
+plot(garch_fit,which = 9)
+plot(garch_fit,which = 10)
+plot(garch_fit,which = 11)
+plot(garch_fit,which = 12)
+```
 
 
 

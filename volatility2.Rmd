@@ -1,0 +1,198 @@
+```{r setup, include=FALSE}
+library(vrtest)
+library(tseries)
+library(quantmod) 
+library(forecast)
+library(ggplot2) 
+library(ggfortify)
+library(dplyr)
+library(gridExtra)
+library(rugarch)
+library(FinTS) 
+library(ConnectednessApproach) 
+
+```
+
+
+```{r}
+btc_data <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2018-01-01", to = "2024-01-01")
+btc_data <- btc_data |> janitor::clean_names()
+
+```
+```{r}
+chartSeries(btc_data)
+```
+
+
+```{r}
+btc_returns <- data.frame(btc_data) |> 
+  mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
+  na.omit() 
+btc_returns <- btc_returns |> mutate(Date = as.Date(rownames(btc_returns)))
+
+Q1 <- quantile(btc_returns$Return, 0.25)
+Q3 <- quantile(btc_returns$Return, 0.75)
+IQR_value <- IQR(btc_returns$Return)
+
+# Step 2: Define the lower and upper bounds for outliers
+lower_bound <- Q1 - 1.5 * IQR_value
+upper_bound <- Q3 + 1.5 * IQR_value
+
+# Step 3: Filter out the outliers based on the Return variable
+btc_returns <- btc_returns |> 
+  filter(Return >= lower_bound & Return <= upper_bound)
+
+```
+
+
+```{r}
+acf_values <- acf(btc_returns$Return,plot = F)
+acf_df <- acf_df <- data.frame(lag = acf_values$lag, acf = acf_values$acf)
+
+acfplot <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(btc_returns$Return)), 1.96/sqrt(length(btc_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (ACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+pacf_values <- pacf(btc_returns$Return**2,plot = F)
+pacf_df <- pacf_df <- data.frame(lag = pacf_values$lag, acf = pacf_values$acf)
+
+pacfplot <- ggplot(pacf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(btc_returns$Return)), 1.96/sqrt(length(btc_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (PACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+grid.arrange( acfplot,pacfplot,ncol = 1)
+```
+
+```{r}
+fit <- Arima(btc_returns$Return, order=c(1,0,0))
+fit
+```
+
+```{r}
+r=resid(fit)
+library(MTS)
+archTest(r)
+```
+
+```{r}
+rr=r^2
+par(mfrow=c(1,2))
+acf(as.vector(rr),main="ACF of Squared Residuals"); 
+pacf(as.vector(rr),main="PACF of Squared Residuals") # homoscedasticity check
+```
+
+
+```{r}
+spec=ugarchspec(variance.model = list(model="sGARCH",garchOrder = c(1, 1)), mean.model = list(armaOrder = c(1,0,0))) 
+def.fit = ugarchfit(spec = spec, data = btc_returns$Return)
+print(def.fit)
+```
+
+```{r}
+volatilityGarch <- data.frame(coredata(btc_returns), VolatilityGarch = sigma(def.fit))
+volatilityPlotGarch<- ggplot(volatilityGarch, aes(x = Date, y = Return)) +
+  geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = VolatilityGarch),color = "darkblue")+
+  labs(
+    title = "Garch(1,1)",
+    y = "Volatility",
+    x = "Date"
+  ) +
+  theme_minimal()
+volatilityPlotGarch
+```
+
+```{r}
+uncvariance(def.fit)
+uncmean(def.fit)
+```
+
+
+```{r}
+forecast_horizon <- 10  # Change to desired forecast horizon
+garch_forecast <- ugarchforecast(def.fit, n.ahead = forecast_horizon)
+
+# View the forecast results
+garch_forecast
+
+# You can extract the forecasted values (conditional mean and variance)
+forecasted_mean <- fitted(garch_forecast)  # Predicted mean for the forecast horizon
+forecasted_volatility <- sigma(garch_forecast)  # Predicted volatility (standard deviation)
+
+# Print the forecasted values
+print(forecasted_mean)
+```
+
+
+
+```{r}
+btc_data_new <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2024-01-01", to = "2024-11-18")
+btc_data_new <- btc_data_new |> janitor::clean_names()
+btc_data_new <- data.frame(btc_data_new) |> 
+  mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
+  na.omit() 
+btc_data_new <- btc_data_new |> mutate(Date = as.Date(rownames(btc_data_new)))
+```
+
+
+```{r}
+progarchspec <- spec
+setfixed(progarchspec) <- as.list(coef(def.fit))
+garchfilter <- ugarchfilter(data = btc_data_new["Return"], spec = progarchspec)
+plot(sigma(garchfilter))
+```
+
+```{r}
+volatilityGarch_new <- data.frame(coredata(btc_data_new), volatilityGarch_new = sigma(garchfilter))
+
+library(patchwork)
+library(gridExtra)
+
+price_plot <- ggplot(data = btc_data_new, aes(x = Date, y = btc_usd_close)) +
+  geom_line(color = "skyblue") +
+  labs(title = "BTC closed price", x = NULL, y = "Close Price") +
+  theme_minimal()
+
+volatility_plot <- ggplot(data = volatilityGarch_new, aes(x = Date, y = volatilityGarch_new)) +
+  geom_line(color = "navy") +
+  labs(title = "Volatility", x = "Date", y = "Volatility") +
+  theme_minimal()
+
+price_plot / volatility_plot + 
+  plot_layout(heights = c(2, 1)) # Adjust relative heights
+```
+
+
+```{r}
+btc_data_new <- btc_data_new |> mutate(actual_vol = runSD(btc_data_new$Return, n = 30)) 
+
+
+btc_data_new <- btc_data_new |> mutate(garch_vol = sigma(garchfilter))
+
+ggplot(btc_data_new, aes(x = Date)) +
+  geom_line(aes(y = actual_vol), color = "blue") +  # Actual volatility in blue
+  geom_line(aes(y = garch_vol), color = "red") +    # GARCH volatility in red
+  labs(title = "Actual vs GARCH Volatility", x = "Date", y = "Volatility") +
+  theme_minimal()
+```
+
+```{r}
+model.roll = ugarchroll(spec = spec , data = btc_data_new$Return , n.start = 100 , refit.every = 50 ,
+                        refit.window = 'moving')
+
+```
+
+
+```{r}
+hist(model.roll@forecast$VaR$`alpha(1%)`)
+```
+
+
+

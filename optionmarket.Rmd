@@ -19,26 +19,18 @@ library(derivmkts)
 
 ```{r}
 # Define the API URL for BTC options
-url <- "https://www.deribit.com/api/v2/public/get_instruments"
+url <- "https://www.deribit.com/api/v2/public/get_order_book"
 
 # Fetch the options data
 response <- GET(url, query = list(
-  currency = "ETH",         # Choose BTC or ETH
-  kind = "option",          # Specify "option" for options data
-  expired = "true"         # Only active options
+  instrument_name = "ETH-29NOV24-3500-C"
 ))
 
 # Parse the response
-options_data <- fromJSON(content(response, "text"))
+options_data <- fromJSON(content(response, "text", encoding = "UTF-8"))
 
 # View the first few entries
-colnames(options_data$result)
-colnames(options_data$result)
-plot(y =options_data$result$strike,x =options_data$result$creation_timestamp)
-t(options_data$result[1,])
-options_data$result[1,]$expiration_timestamp   
-options_data$result
-as.POSIXct(options_data$result[1,]$expiration_timestamp , origin = "1970-01-01", tz = "UTC")
+options_data
 
 ```
 
