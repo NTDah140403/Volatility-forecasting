@@ -134,7 +134,7 @@ print(forecasted_mean)
 
 ```{r}
 eth_data_new <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
-                       from = "2024-01-01", to = "2024-11-18")
+                       from = "2024-01-02", to = "2024-11-18")
 eth_data_new <- eth_data_new |> janitor::clean_names()
 eth_data_new <- data.frame(eth_data_new) |> 
   mutate(Return = log((eth_usd_close / lag(eth_usd_close)))) |> 
@@ -444,9 +444,54 @@ ggplot(eth_data_new_2, aes(x = Date)) +
   theme_minimal()
 ```
 
+```{r}
+errors <- eth_data_new_2$actual_vol - eth_data_new_2$garch_vol
+errors <- na.omit(errors)
+# Mean Squared Error (MSE)
+mse <- mean(errors^2)
 
+# Root Mean Squared Error (RMSE)
+rmse <- sqrt(mse)
 
+# Mean Absolute Error (MAE)
+mae <- mean(abs(errors))
 
+mape <- mean(abs(errors / results$Actual_Return)) * 100
+
+# Print results
+cat("\nMSE:", mse, "\n")
+cat("RMSE:", rmse, "\n")
+cat("MAE:", mae, "\n")
+cat("MAPE:", mape, "%\n")
+
+```
+
+```{r}
+# Calculate the adjusted return and bounds
+results <- results |> 
+  mutate(
+    Upper_Bound = uncmean(def.fit) + qnorm(0.95) * lag(results$Predicted_Volatility),  # Upper bound
+    Lower_Bound = uncmean(def.fit) - qnorm(0.95) * lag(results$Predicted_Volatility)   # Lower bound
+  )
+
+# Create the plot
+ggplot(results, aes(x = Date)) +
+  geom_line(aes(y = Actual_Return, color = "Return"), size = 0.8) +
+  geom_line(aes(y = Upper_Bound, color = "Upper Bound"), linetype = "dashed", size = 0.8) +
+  geom_line(aes(y = Lower_Bound, color = "Lower Bound"), linetype = "dashed", size = 0.8) +
+  labs(
+    title = "Return vs Prediction Bounds",
+    x = "Date",
+    y = "Value",
+    color = "Legend"
+  ) +
+  theme_minimal() +
+  scale_color_manual(
+    values = c("Return" = "blue", 
+               "Upper Bound" = "green", 
+               "Lower Bound" = "red")
+  )
+```
 
 
 
