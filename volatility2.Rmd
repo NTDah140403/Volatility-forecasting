@@ -15,54 +15,55 @@ library(ConnectednessApproach)
 
 
 ```{r}
-btc_data <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
+eth_data <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
                        from = "2018-01-01", to = "2024-01-01")
-btc_data <- btc_data |> janitor::clean_names()
+eth_data <- eth_data |> janitor::clean_names()
 
 ```
+
 ```{r}
-chartSeries(btc_data)
+chartSeries(eth_data)
 ```
 
 
 ```{r}
-btc_returns <- data.frame(btc_data) |> 
-  mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
+eth_return <- data.frame(eth_data) |> 
+  mutate(Return = log((eth_usd_close / lag(eth_usd_close)))) |> 
   na.omit() 
-btc_returns <- btc_returns |> mutate(Date = as.Date(rownames(btc_returns)))
+eth_return <- eth_return |> mutate(Date = as.Date(rownames(eth_return)))
 
-Q1 <- quantile(btc_returns$Return, 0.25)
-Q3 <- quantile(btc_returns$Return, 0.75)
-IQR_value <- IQR(btc_returns$Return)
+Q1 <- quantile(eth_return$Return, 0.25)
+Q3 <- quantile(eth_return$Return, 0.75)
+IQR_value <- IQR(eth_return$Return)
 
 # Step 2: Define the lower and upper bounds for outliers
 lower_bound <- Q1 - 1.5 * IQR_value
 upper_bound <- Q3 + 1.5 * IQR_value
 
 # Step 3: Filter out the outliers based on the Return variable
-btc_returns <- btc_returns |> 
+eth_return <- eth_return |> 
   filter(Return >= lower_bound & Return <= upper_bound)
 
 ```
 
 
 ```{r}
-acf_values <- acf(btc_returns$Return,plot = F)
+acf_values <- acf(eth_return$Return,plot = F)
 acf_df <- acf_df <- data.frame(lag = acf_values$lag, acf = acf_values$acf)
 
 acfplot <- ggplot(acf_df, aes(x = lag, y = acf)) +
   geom_bar(stat = "identity", fill = "skyblue") +
-  geom_hline(yintercept = c(-1.96/sqrt(length(btc_returns$Return)), 1.96/sqrt(length(btc_returns$Return))), 
+  geom_hline(yintercept = c(-1.96/sqrt(length(eth_return$Return)), 1.96/sqrt(length(eth_return$Return))), 
              linetype = "dashed", color = "red") +
   labs(title = "Autocorrelation Function (ACF)", x = "Lag", y = "ACF") +
   theme_minimal()
 
-pacf_values <- pacf(btc_returns$Return**2,plot = F)
+pacf_values <- pacf(eth_return$Return**2,plot = F)
 pacf_df <- pacf_df <- data.frame(lag = pacf_values$lag, acf = pacf_values$acf)
 
 pacfplot <- ggplot(pacf_df, aes(x = lag, y = acf)) +
   geom_bar(stat = "identity", fill = "skyblue") +
-  geom_hline(yintercept = c(-1.96/sqrt(length(btc_returns$Return)), 1.96/sqrt(length(btc_returns$Return))), 
+  geom_hline(yintercept = c(-1.96/sqrt(length(eth_return$Return)), 1.96/sqrt(length(eth_return$Return))), 
              linetype = "dashed", color = "red") +
   labs(title = "Autocorrelation Function (PACF)", x = "Lag", y = "ACF") +
   theme_minimal()
@@ -71,7 +72,7 @@ grid.arrange( acfplot,pacfplot,ncol = 1)
 ```
 
 ```{r}
-fit <- Arima(btc_returns$Return, order=c(1,0,0))
+fit <- Arima(eth_return$Return, order=c(1,0,0))
 fit
 ```
 
@@ -91,12 +92,12 @@ pacf(as.vector(rr),main="PACF of Squared Residuals") # homoscedasticity check
 
 ```{r}
 spec=ugarchspec(variance.model = list(model="sGARCH",garchOrder = c(1, 1)), mean.model = list(armaOrder = c(1,0,0))) 
-def.fit = ugarchfit(spec = spec, data = btc_returns$Return)
+def.fit = ugarchfit(spec = spec, data = eth_return$Return)
 print(def.fit)
 ```
 
 ```{r}
-volatilityGarch <- data.frame(coredata(btc_returns), VolatilityGarch = sigma(def.fit))
+volatilityGarch <- data.frame(coredata(eth_return), VolatilityGarch = sigma(def.fit))
 volatilityPlotGarch<- ggplot(volatilityGarch, aes(x = Date, y = Return)) +
   geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = VolatilityGarch),color = "darkblue")+
   labs(
@@ -132,32 +133,32 @@ print(forecasted_mean)
 
 
 ```{r}
-btc_data_new <- getSymbols("BTC-USD", src = "yahoo", auto.assign = FALSE, 
+eth_data_new <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
                        from = "2024-01-01", to = "2024-11-18")
-btc_data_new <- btc_data_new |> janitor::clean_names()
-btc_data_new <- data.frame(btc_data_new) |> 
-  mutate(Return = (btc_usd_close / lag(btc_usd_close) - 1)) |> 
+eth_data_new <- eth_data_new |> janitor::clean_names()
+eth_data_new <- data.frame(eth_data_new) |> 
+  mutate(Return = log((eth_usd_close / lag(eth_usd_close)))) |> 
   na.omit() 
-btc_data_new <- btc_data_new |> mutate(Date = as.Date(rownames(btc_data_new)))
+eth_data_new <- eth_data_new |> mutate(Date = as.Date(rownames(eth_data_new)))
 ```
 
 
 ```{r}
 progarchspec <- spec
 setfixed(progarchspec) <- as.list(coef(def.fit))
-garchfilter <- ugarchfilter(data = btc_data_new["Return"], spec = progarchspec)
+garchfilter <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspec)
 plot(sigma(garchfilter))
 ```
 
 ```{r}
-volatilityGarch_new <- data.frame(coredata(btc_data_new), volatilityGarch_new = sigma(garchfilter))
+volatilityGarch_new <- data.frame(coredata(eth_data_new), volatilityGarch_new = sigma(garchfilter))
 
 library(patchwork)
 library(gridExtra)
 
-price_plot <- ggplot(data = btc_data_new, aes(x = Date, y = btc_usd_close)) +
+price_plot <- ggplot(data = eth_data_new, aes(x = Date, y = eth_usd_close)) +
   geom_line(color = "skyblue") +
-  labs(title = "BTC closed price", x = NULL, y = "Close Price") +
+  labs(title = "ETH closed price", x = NULL, y = "Close Price") +
   theme_minimal()
 
 volatility_plot <- ggplot(data = volatilityGarch_new, aes(x = Date, y = volatilityGarch_new)) +
@@ -171,12 +172,12 @@ price_plot / volatility_plot +
 
 
 ```{r}
-btc_data_new <- btc_data_new |> mutate(actual_vol = runSD(btc_data_new$Return, n = 30)) 
+eth_data_new <- eth_data_new |> mutate(actual_vol = runSD(eth_data_new$Return, n = 30)) 
 
 
-btc_data_new <- btc_data_new |> mutate(garch_vol = sigma(garchfilter))
+eth_data_new <- eth_data_new |> mutate(garch_vol = sigma(garchfilter))
 
-ggplot(btc_data_new, aes(x = Date)) +
+ggplot(eth_data_new, aes(x = Date)) +
   geom_line(aes(y = actual_vol), color = "blue") +  # Actual volatility in blue
   geom_line(aes(y = garch_vol), color = "red") +    # GARCH volatility in red
   labs(title = "Actual vs GARCH Volatility", x = "Date", y = "Volatility") +
@@ -184,15 +185,272 @@ ggplot(btc_data_new, aes(x = Date)) +
 ```
 
 ```{r}
-model.roll = ugarchroll(spec = spec , data = btc_data_new$Return , n.start = 100 , refit.every = 50 ,
-                        refit.window = 'moving')
-
+def.fit@fit$coef
 ```
 
 
 ```{r}
-hist(model.roll@forecast$VaR$`alpha(1%)`)
+# Extract coefficients from the fitted model
+coef <- def.fit@fit$coef
+mu <- coef["mu"]       # Mean
+ar1 <- coef["ar1"]     # AR(1) coefficient
+omega <- coef["omega"] # GARCH omega
+alpha1 <- coef["alpha1"] # GARCH alpha
+beta1 <- coef["beta1"]  # GARCH beta
+
+n <- nrow(eth_data_new)      # Total number of observations
+r <- eth_data_new$Return     # Actual returns from the data
+a <- numeric(n)              # Residuals
+sigma2 <- numeric(n)         # Conditional variance
+predicted_returns <- numeric(n) 
+
+last = eth_return$Return[2036]
+# Initial values
+a[1] <- 0  # Residual at time t=1
+sigma2[1] <- omega / (1 - alpha1 - beta1)  # Long-run variance
+predicted_returns[1] = r[1]
+
+# Recursive calculation
+set.seed(123)
+for (t in 2:n) {
+  # Update conditional variance using GARCH(1,1) equation
+  
+  sigma2[t] <- omega + alpha1 * (a[t-1]^2) + beta1 * sigma2[t-1]
+  epsilon_t <- rnorm(1, mean = 0, sd = 1)
+  # Update returns using AR(1) mean equation
+  
+  a[t] <- r[t] - (mu + ar1 * r[t-1])  # Calculate residual
+  
+  #a[t] <- (sqrt(sigma2[t-1]) * epsilon_t)
+  
+  
+  predicted_returns[t] <- mu + ar1*r[t-1] #+ (sqrt(sigma2[t]) * epsilon_t)
+}
+
+# Prepare results
+results <- data.frame(
+  Date = eth_data_new$Date,
+  Actual_Return = eth_data_new$Return,
+  Predict_return = predicted_returns,
+  Predicted_Volatility = sqrt(sigma2) # Volatility is the square root of conditional variance
+)
+
+# View the first few rows of results
+head(results)
 ```
+
+```{r}
+k <- 10  # Number of steps ahead
+future_volatility <- numeric(k)
+
+# Use the last known residual and variance
+a_t_last <- a[n]
+sigma2_t_last <- sigma2[n]
+
+# Recursive forecast for future volatility
+for (i in 1:k) {
+  # Update conditional variance
+  sigma2_t_last <- omega + alpha1 * (a_t_last^2) + beta1 * sigma2_t_last
+  future_volatility[i] <- sqrt(sigma2_t_last)
+  
+  # Assume residuals are zero for future (optional assumption)
+  a_t_last <- 0
+}
+
+# Print future volatility predictions
+future_volatility
+```
+
+```{r}
+# Plot actual and predicted volatilities
+ggplot(results, aes(x = Date)) +
+  geom_line(aes(y = Predicted_Volatility, color = "Predicted Volatility")) +
+  labs(title = "Volatility Predictions", x = "Date", y = "Volatility") +
+  theme_minimal()
+```
+
+```{r}
+# # Initialize parameters
+# n <- nrow(eth_data_new)      # Total number of observations
+# r <- eth_data_new$Return     # Actual log returns
+# a <- numeric(n)              # Residuals
+# sigma2 <- numeric(n)         # Conditional variance
+# predicted_returns <- numeric(n)  # Predicted returns
+# 
+# # Extract coefficients from the fitted model
+# mu <- coef["mu"]
+# ar1 <- coef["ar1"]
+# omega <- coef["omega"]
+# alpha1 <- coef["alpha1"]
+# beta1 <- coef["beta1"]
+# 
+# # Initial values
+# a[1] <- 0  # Residual at time t=1
+# sigma2[1] <- omega / (1 - alpha1 - beta1)  # Long-run variance
+# predicted_returns[1] <- r[1]  # Assume first return is observed
+# 
+# # Recursive calculation
+# set.seed(123)  # For reproducibility of random draws
+# for (t in 2:n) {
+#   # Update conditional variance using GARCH(1,1) equation
+#   sigma2[t] <- omega + alpha1 * (a[t-1]^2) + beta1 * sigma2[t-1]
+#   
+#   # Generate random noise epsilon_t
+#   epsilon_t <- rnorm(1, mean = 0, sd = 1)
+#   #epsilon_t = 1
+#   # Predicted return using r_t = mu + sigma_t * epsilon_t
+#   predicted_returns[t] <- mu + ar1*r[t-1] + (sqrt(sigma2[t]) * epsilon_t)
+#   
+#   # Calculate residual based on actual return
+#   a[t] <- r[t] - predicted_returns[t]
+# }
+# 
+# # Prepare results
+# results <- data.frame(
+#   Date = eth_data_new$Date,
+#   Actual_Return = eth_data_new$Return,
+#   Predicted_Return = predicted_returns,
+#   Predicted_Volatility = sqrt(sigma2) # Volatility is the square root of conditional variance
+# )
+# 
+# # View the first few rows of results
+# head(results)
+```
+
+
+```{r}
+# # Number of steps ahead to predict
+# k <- 10  # Forecast horizon
+# 
+# # Initialize vectors for future forecasts
+# future_returns <- numeric(k)
+# future_volatility <- numeric(k)
+# 
+# # Use the last known values
+# last_return <- r[n]
+# last_sigma2 <- sigma2[n]
+# 
+# # Recursive forecast for future returns and volatility
+# set.seed(123)  # For reproducibility of random shocks
+# for (i in 1:k) {
+#   # Generate random noise epsilon_t (white noise)
+#   epsilon_t <- rnorm(1, mean = 0, sd = 1)
+#   #epsilon_t = 1
+#   
+#   # Update conditional variance (GARCH equation)
+#   last_sigma2 <- omega + alpha1 * (epsilon_t^2) * last_sigma2 + beta1 * last_sigma2
+#   future_volatility[i] <- sqrt(last_sigma2)
+#   
+#   # Update predicted return
+#   future_returns[i] <- mu + ar1*last_return + (future_volatility[i] * epsilon_t)
+#   
+#   # Update for next iteration
+#   last_return <- future_returns[i]
+# }
+# 
+# # Combine future results into a data frame
+# future_results <- data.frame(
+#   Step = 1:k,
+#   Predicted_Return = future_returns,
+#   Predicted_Volatility = future_volatility
+# )
+# 
+# # View future predictions
+# print(future_results)
+
+```
+
+```{r}
+library(ggplot2)
+
+# Plot predicted vs actual returns
+ggplot(results, aes(x = Actual_Return, y = Predict_return)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  labs(
+    title = "Scatter Plot of Actual vs Predicted Returns",
+    x = "Actual Return",
+    y = "Predicted Return"
+  ) +
+  theme_minimal() +
+  geom_abline(slope = 1, intercept = 0, color = "red", linetype = "dashed", linewidth = 1) +
+  theme(plot.title = element_text(hjust = 1))
+
+# Plot predicted volatility
+ggplot(results, aes(x = Date)) +
+  geom_line(aes(y = Predicted_Volatility, color = "Predicted Volatility")) +
+  labs(title = "Predicted Volatility Over Time", x = "Date", y = "Volatility") +
+  theme_minimal() +
+  scale_color_manual(values = c("Predicted Volatility" = "black"))
+
+```
+
+```{r}
+# Calculate errors (residuals)
+errors <- results$Actual_Return - results$Predict_return
+
+# Mean Squared Error (MSE)
+mse <- mean(errors^2)
+
+# Root Mean Squared Error (RMSE)
+rmse <- sqrt(mse)
+
+# Mean Absolute Error (MAE)
+mae <- mean(abs(errors))
+
+mape <- mean(abs(errors / results$Actual_Return)) * 100
+
+# Print results
+# cat("MSE:", mse, "\n")
+# cat("RMSE:", rmse, "\n")
+# cat("MAE:", mae, "\n")
+cat("MAPE:", mape, "%\n")
+```
+
+
+
+```{r}
+volatilityGarch_pre <- data.frame(coredata(eth_data_new), volatilityGarch_pre = results$Predicted_Volatility)
+
+library(patchwork)
+library(gridExtra)
+
+price_plot <- ggplot(data = eth_data_new, aes(x = Date, y = eth_usd_close)) +
+  geom_line(color = "skyblue") +
+  labs(title = "ETH closed price", x = NULL, y = "Close Price") +
+  theme_minimal()
+
+volatility_plot <- ggplot(data = volatilityGarch_pre, aes(x = Date, y = volatilityGarch_pre)) +
+  geom_line(color = "navy") +
+  labs(title = "Volatility", x = "Date", y = "Volatility") +
+  theme_minimal()
+
+price_plot / volatility_plot + 
+  plot_layout(heights = c(2, 1)) # Adjust relative heights
+```
+
+
+```{r}
+eth_data_new_2 <- eth_data_new
+
+eth_data_new_2 <- eth_data_new_2 |> mutate(actual_vol = runSD(eth_data_new_2$Return, n = 30)) 
+
+
+eth_data_new_2 <- eth_data_new_2 |> mutate(garch_vol = results$Predicted_Volatility)
+
+ggplot(eth_data_new_2, aes(x = Date)) +
+  geom_line(aes(y = actual_vol), color = "blue") +  # Actual volatility in blue
+  geom_line(aes(y = garch_vol), color = "red") +    # GARCH volatility in red
+  labs(title = "Actual vs GARCH Volatility", x = "Date", y = "Volatility") +
+  theme_minimal()
+```
+
+
+
+
+
+
+
+
 
 
 
