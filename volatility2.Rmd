@@ -116,18 +116,29 @@ uncmean(def.fit)
 
 
 ```{r}
-forecast_horizon <- 10  # Change to desired forecast horizon
+# Extract forecasted volatility
+forecast_horizon <- 1000  # Change to desired forecast horizon
 garch_forecast <- ugarchforecast(def.fit, n.ahead = forecast_horizon)
-
-# View the forecast results
 garch_forecast
+forecast_volatility <- sigma(garch_forecast)
 
-# You can extract the forecasted values (conditional mean and variance)
-forecasted_mean <- fitted(garch_forecast)  # Predicted mean for the forecast horizon
-forecasted_volatility <- sigma(garch_forecast)  # Predicted volatility (standard deviation)
+# Create a data frame for plotting
 
-# Print the forecasted values
-print(forecasted_mean)
+forecast_data <- data.frame(
+  Step = 1:forecast_horizon,          # Forecast horizon steps
+  Predicted_Volatility = forecast_volatility[1:forecast_horizon] # Forecasted volatility
+)
+
+# Plot the forecasted volatility
+library(ggplot2)
+ggplot(forecast_data, aes(x = Step, y = Predicted_Volatility)) +
+  geom_line(color = "blue", size = 1) +
+  labs(
+    title = "Forecasted Volatility (GARCH)",
+    x = "Forecast Step",
+    y = "Predicted Volatility"
+  ) +
+  theme_minimal()
 ```
 
 
@@ -240,26 +251,27 @@ head(results)
 ```
 
 ```{r}
-k <- 10  # Number of steps ahead
-future_volatility <- numeric(k)
-
-# Use the last known residual and variance
-a_t_last <- a[n]
-sigma2_t_last <- sigma2[n]
-
-# Recursive forecast for future volatility
-for (i in 1:k) {
-  # Update conditional variance
-  sigma2_t_last <- omega + alpha1 * (a_t_last^2) + beta1 * sigma2_t_last
-  future_volatility[i] <- sqrt(sigma2_t_last)
-  
-  # Assume residuals are zero for future (optional assumption)
-  a_t_last <- 0
-}
-
-# Print future volatility predictions
-future_volatility
+# k <- 10  # Number of steps ahead
+# future_volatility <- numeric(k)
+# 
+# # Use the last known residual and variance
+# a_t_last <- a[n]
+# sigma2_t_last <- sigma2[n]
+# 
+# # Recursive forecast for future volatility
+# for (i in 1:k) {
+#   # Update conditional variance
+#   sigma2_t_last <- omega + alpha1 * (a_t_last^2) + beta1 * sigma2_t_last
+#   future_volatility[i] <- sqrt(sigma2_t_last)
+#   
+#   # Assume residuals are zero for future (optional assumption)
+#   a_t_last <- 0
+# }
+# 
+# # Print future volatility predictions
+# future_volatility
 ```
+
 
 ```{r}
 # Plot actual and predicted volatilities
@@ -385,25 +397,25 @@ ggplot(results, aes(x = Date)) +
 ```
 
 ```{r}
-# Calculate errors (residuals)
-errors <- results$Actual_Return - results$Predict_return
-
-# Mean Squared Error (MSE)
-mse <- mean(errors^2)
-
-# Root Mean Squared Error (RMSE)
-rmse <- sqrt(mse)
-
-# Mean Absolute Error (MAE)
-mae <- mean(abs(errors))
-
-mape <- mean(abs(errors / results$Actual_Return)) * 100
-
-# Print results
-# cat("MSE:", mse, "\n")
-# cat("RMSE:", rmse, "\n")
-# cat("MAE:", mae, "\n")
-cat("MAPE:", mape, "%\n")
+# # Calculate errors (residuals)
+# errors <- results$Actual_Return - results$Predict_return
+# 
+# # Mean Squared Error (MSE)
+# mse <- mean(errors^2)
+# 
+# # Root Mean Squared Error (RMSE)
+# rmse <- sqrt(mse)
+# 
+# # Mean Absolute Error (MAE)
+# mae <- mean(abs(errors))
+# 
+# mape <- mean(abs(errors / results$Actual_Return)) * 100
+# 
+# # Print results
+# # cat("MSE:", mse, "\n")
+# # cat("RMSE:", rmse, "\n")
+# # cat("MAE:", mae, "\n")
+# cat("MAPE:", mape, "%\n")
 ```
 
 
@@ -470,15 +482,15 @@ cat("MAPE:", mape, "%\n")
 # Calculate the adjusted return and bounds
 results <- results |> 
   mutate(
-    Upper_Bound = uncmean(def.fit) + qnorm(0.95) * lag(results$Predicted_Volatility),  # Upper bound
-    Lower_Bound = uncmean(def.fit) - qnorm(0.95) * lag(results$Predicted_Volatility)   # Lower bound
+    Upper_Bound = exp(uncmean(def.fit) + qnorm(0.95) * lag(results$Predicted_Volatility)) * lag(eth_data_new$eth_usd_close),  # Upper bound
+    Lower_Bound = exp(uncmean(def.fit) - qnorm(0.95) * lag(results$Predicted_Volatility)) * lag(eth_data_new$eth_usd_close)  # Lower bound
   )
 
 # Create the plot
 ggplot(results, aes(x = Date)) +
-  geom_line(aes(y = Actual_Return, color = "Return"), size = 0.8) +
-  geom_line(aes(y = Upper_Bound, color = "Upper Bound"), linetype = "dashed", size = 0.8) +
-  geom_line(aes(y = Lower_Bound, color = "Lower Bound"), linetype = "dashed", size = 0.8) +
+  geom_line(aes(y = eth_data_new$eth_usd_close, color = "Return"), size = 0.5) +
+  geom_line(aes(y = Upper_Bound, color = "Upper Bound"), linetype = "dashed", size = 0.5) +
+  geom_line(aes(y = Lower_Bound, color = "Lower Bound"), linetype = "dashed", size = 0.5) +
   labs(
     title = "Return vs Prediction Bounds",
     x = "Date",
