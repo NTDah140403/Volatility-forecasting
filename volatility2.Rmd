@@ -111,6 +111,12 @@ pacf(as.vector(rr),main="PACF of Squared Residuals") # homoscedasticity check
 spec=ugarchspec(variance.model = list(model="sGARCH",garchOrder = c(1, 1)), mean.model = list(armaOrder = c(1,0,0)), distribution.model = 'norm') 
 def.fit = ugarchfit(spec = spec, data = eth_return$Return)
 print(def.fit)
+aic_value <- infocriteria(def.fit)["Akaike", ]  # Akaike Information Criterion
+bic_value <- infocriteria(def.fit)["Bayes", ]   # Bayesian Information Criterion
+
+# Print the AIC and BIC values
+cat("AIC:", aic_value, "\n")
+cat("BIC:", bic_value, "\n")
 ```
 
 ```{r}
@@ -129,6 +135,12 @@ plot(def.fit,which = 9)
 spec2=ugarchspec(variance.model = list(model="sGARCH",garchOrder = c(1, 1)), mean.model = list(armaOrder = c(1,0,0)), distribution.model = 'std') 
 def.fit2 = ugarchfit(spec = spec2, data = eth_return$Return)
 print(def.fit2)
+aic_value <- infocriteria(def.fit2)["Akaike", ]  # Akaike Information Criterion
+bic_value <- infocriteria(def.fit2)["Bayes", ]   # Bayesian Information Criterion
+
+# Print the AIC and BIC values
+cat("AIC:", aic_value, "\n")
+cat("BIC:", bic_value, "\n")
 ```
 
 ```{r}
