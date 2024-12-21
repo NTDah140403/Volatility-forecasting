@@ -63,6 +63,8 @@ lower <- quantile(btc_returns$Return,.25) - IQR(btc_returns$Return)*1.5
 btc_returns <- btc_returns |> dplyr::filter(Return < upper & Return > lower)
 ```
 ```{r}
+
+
 ggplot(data = btc_returns, aes(x =Date , y = Return)) +
   geom_line() +
   labs( x = 'Time', y = 'Log return') +
@@ -88,7 +90,7 @@ volatilityPlotEst <- ggplot(volatilityEst, aes(x = Date, y = Return)) +
 volatilityPlotEst
 ```
 ```{r}
-acf_values <- acf(btc_returns$Return,plot = F)
+acf_values <- acf(btc_returns$Closed,plot = F)
 acf_df <- acf_df <- data.frame(lag = acf_values$lag, acf = acf_values$acf)
 
 acfplot <- ggplot(acf_df, aes(x = lag, y = acf)) +
@@ -240,6 +242,7 @@ plot(sigma(forecastGarch),type = "l",ylim = c(0, .2))
 lines(sigma(forecastGarchstd), type ='l', col = "green")
 abline(h = uncvariance(garch_fit)**(1/2)
 , col = "red", lty = 2)  
+
 abline(h = uncvariance(garch_fitStd)**(1/2)
 , col = "blue", lty = 2)  
 ```

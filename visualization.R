@@ -245,8 +245,43 @@ round(decompose(x)$figure / 10, 2)
 plot(x)
 plot(m)
 
+eth_data 
 
+spec1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)), 
+  mean.model = list(armaOrder = c(1, 1)),,    
+  distribution.model = "std"                
+)
+spec2 <- ugarchspec(
+  variance.model = list(model = "rGARCH"), 
+  mean.model = list(armaOrder = c(1, 1)),    
+  distribution.model = "norm"                
+)
+fit1 <- ugarchfit(spec1, eth_data['Return'])
+fit2 <- ugarchfit(spec2, eth_data['Return'])
+plot(fit2,which =1)
+hist(sigma(fit1))
 
+sr <- data.frame(x = lag(abs(eth_data$Return))*10, y = sigma(fit1) *100) |>  na.omit()
+# sr <- data.frame(x = lag(sigma(fit1) ), y = sigma(fit1)) |>  na.omit()
+sr1 <- sr |> mutate(x1 = cut(x,100),y1=cut(y,100))
+df <- as.data.frame(table(sr1$x1,sr1$y1))
+library(plotly)
+plot_ly(df, x = ~cal_mid(Var1), y = ~cal_mid(Var2), z = ~Freq, type = "histogram2dcontour")
 
+df
+ggplot(sr,aes(x = 10*x,y = 10*y))+ geom_jitter(alpha = 0.5,position = position_jitter(width = 0.1, height = 0.1))
 
-
+cal_lower <- function(x) {
+  as.numeric( sub("\\((.+),.*", "\\1", x) )
+}
+cal_upper <- function(x) {
+  as.numeric( sub("[^,]*,([^]]*)\\]", "\\1", x) )
+}
+cal_mid <- function(x){
+  (cal_lower(x)+cal_upper(x))/2
+}
+df = 4
+curve(dchisq(x, df = df), from = 0, to = 20, col = "blue", lwd = 2, ylab = "Density", xlab = "Value", 
+      main = expression(chi^2 ~ "Distribution with 4 Degrees of Freedom"))
+    

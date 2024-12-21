@@ -15,7 +15,14 @@ library(jsonlite)
 library(derivmkts)
 ```
 
+```{r}
 
+convertTt <- function(timestamp)
+  as.POSIXct(timestamp/1000, origin = "1970-01-01", tz = "UTC")
+
+
+convertTt(options_data$result[1,]$expiration_timestamp)  
+```
 
 ```{r}
 # Define the API URL for BTC options
@@ -38,25 +45,12 @@ plot(y =options_data$result$strike,x =options_data$result$creation_timestamp)
 t(options_data$result[1,])
 options_data$result[1,]$expiration_timestamp   
 options_data$result
-as.POSIXct(options_data$result[1,]$expiration_timestamp , origin = "1970-01-01", tz = "UTC")
 
 ```
 
-```{r}
 
-# Giá trị timestamp ban đầu
-timestamp <- 1.731658e+12  # Milliseconds
 
-# Chuyển đổi sang ngày
-converted_date <- as.POSIXct(timestamp / 1000, origin = "1970-01-01", tz = "UTC")
 
-print(converted_date)
-```
-
-```{# Hiển thị giá tại thời điểm đó}
-print(timestamp_ms)
-
-```
 
 ```{r}
 profit_cal <- function(option_type, price_index,strike,contract_size){
@@ -106,21 +100,29 @@ cat("Lợi nhuận từ quyền chọn:", profit, "\n")
 ```{r}
 
 eth_data <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
-                       from = "2023-01-01", to = "2024-11-16")
+                       from = "2022-01-01", to = "2024-11-19")
 eth_data <- eth_data |> janitor::clean_names()
 
 ```
 ```{r}
 
 eth_returns <- data.frame(eth_data) |> 
-  mutate(Return = (eth_usd_close / lag(eth_usd_close) - 1)) |> 
+  mutate(Return = (eth_usd_close / lag(eth_usd_close) - 1), logclosed = log(eth_usd_close)) |> 
   na.omit() 
+
+# upper <- quantile(eth_returns$eth_usd_close,.75) + IQR(eth_returns$eth_usd_close)*1.5
+# lower <- quantile(eth_returns$eth_usd_close,.25) - IQR(eth_returns$eth_usd_close)*1.5
+# eth_returns <- eth_returns |> dplyr::filter(eth_usd_close < upper & eth_usd_close > lower)
+# ?runSD
 eth_returns <- eth_returns |> mutate(Date = as.Date(rownames(eth_returns)))
 volatilityRoll <- runSD(eth_returns$Return, n = 30) 
 volatilityEst <- data.frame(coredata(eth_returns),
   Volatility = volatilityRoll
 ) |>   na.omit() 
 
+
+ggplot(volatilityEst, aes(x = Date, y = Volatility)) +
+  geom_line(color = "skyblue",size = 1.2) 
 
 volatilityPlotEst <- ggplot(volatilityEst, aes(x = Date, y = Return)) +
   geom_line(color = "skyblue",size = 1.2) + geom_line(aes(y = Volatility),color = "darkblue") +
@@ -157,8 +159,234 @@ volatilityPlotGarch
 ```{r}
 
 
-plot(volatilityGarch$VolatilityGarch*100/volatilityGarch$Return)
+plot( abs( ((lag(eth_returns$Return) / eth_returns$Return) - 1) *100), type = 'l')
+plot(volatilityGarch$VolatilityGarch*sqrt(30)*100, type = 'l')
+plot(volatilityGarch$VolatilityGarch*100, type = 'l')
 ```
+
+
+```{r}
+library(httr)
+library(jsonlite)
+
+# Deribit API URL
+base_url <- "https://www.deribit.com/api/v2/public"
+
+# Fetch instruments (contracts) for ETH
+response <- GET(paste0(base_url, "/get_instruments?currency=ETH"))
+
+# Parse response
+data <- fromJSON(content(response, "text"))
+contracts <- data$result
+
+# Print the contracts
+print(contracts)
+
+# Fetch details of a specific contract
+instrument_name <- "ETH-21NOV24-2950-P"
+response <- GET(paste0(base_url, "/ticker?instrument_name=", instrument_name))
+contract_details <- fromJSON(content(response, "text"))
+
+# Print the specific contract details
+print(contract_details)
+
+```
+
+```{r}
+
+BScall <- function(t=0,T,S,K,r,q=0,sigma,isPut=0) {
+# t and T are measured in years; all parameters are annualized
+# q is the continuous dividend yield
+d1 <- (log(S/K)+(r-q+sigma^2/2)*(T-t))/(sigma*sqrt(T-t))
+d2 <- d1-sigma*sqrt(T-t)
+binary <- pnorm(-d2)*exp(-r*T)
+
+# Call Delta at t
+Delta <- exp(-q*(T-t))*pnorm(d1)
+Gamma <- exp(-q*(T-t))*exp(-d1^2/2)/sqrt(2*pi)/S/sigma/sqrt(T-t)
+Vega <- S*exp(-q*(T-t))/sqrt(2*pi)*exp(-d1^2/2)*sqrt(T-t)
+Theta <- -S*exp(-q*(T-t))*sigma/sqrt(T-t)/2*dnorm(d1) - r*K*exp(-r*(T-t))*pnorm(d2) + 
+    q*S*exp(-q*(T-t))*pnorm(d1)
+Rho <- (T-t)*K*exp(-r*(T-t))*pnorm(d2)
+
+
+# Black-Scholes formula for Calls
+BSprice <- -K*exp(-r*(T-t))*pnorm(d2)+S*Delta
+
+if (isPut==1) {
+    Delta <- -exp(-q*(T-t))*pnorm(-d1)
+    BSprice <- S*Delta+K*exp(-r*(T-t))*pnorm(-d2)
+    Theta <- -S*exp(-q*(T-t))*sigma/sqrt(T-t)/2*dnorm(d1) + r*K*exp(-r*(T-t))*pnorm(-d2) - 
+    q*S*exp(-q*(T-t))*pnorm(-d1)
+    Rho <- -(T-t)*K*exp(-r*(T-t))*pnorm(-d2)
+}
+Bank <- BSprice-Delta*S
+
+return (list(Delta=Delta,Gamma=Gamma,Theta=Theta,Vega=Vega,Rho=Rho,Price=BSprice,d1=d1,d2=d2,B=Bank))
+}
+sig
+sig<- volatilityGarch$VolatilityGarch[length(volatilityGarch$VolatilityGarch)] *sqrt(2)
+
+S <- as.numeric(historical_prices[3,5])
+S
+BScall(t=0,T=2/30*12,S=S
+,K=2950,r=0.0,q=0,sigma=sig,isPut=0)
+
+
+```
+
+
+```{r}
+library(qrmtools )
+sig<- volatilityGarch$VolatilityGarch[length(volatilityGarch$VolatilityGarch)] *sqrt(365)
+ sig<- 0.76
+S <- 3100
+Black_Scholes(0, S, 0.0, sig, 6000, 365/(30*12), type = c("put"))
+Black_Scholes_Greeks(0, S, 0.0, sig, 6000, 365/(30*12), type = c("call"))
+```
+```{r}
+begintime <- as.numeric(format("2024/11/12", "%Y%m%d"))
+endtime <- as.numeric(format("2024/11/19", "%Y%m%d"))
+# Define API endpoint for candlestick data (ETH/USDT)
+url <- "https://api.binance.com/api/v3/klines"
+params <- list(
+  symbol = "ETHUSDT",         # Ethereum/USDT pair
+  interval = "1d",            # Daily data
+  startTime = begintime, # Replace with Unix timestamp
+  endTime = endtime    # Replace with Unix timestamp
+)
+
+# Send GET request
+response <- GET(url, query = params)
+
+# Parse response
+data <- fromJSON(content(response, "text"))
+
+# Extract price data
+historical_prices <- data
+
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+url <- "https://www.deribit.com/api/v2/public/get_order_book"
+
+# Fetch the options data
+response <- GET(url, query = list(
+  instrument_name = "ETH-8NOV24-3500-C"     
+))
+
+# Parse the response
+options_data <- fromJSON(content(response, "text",encoding = "UTF-8"))
+
+options_data$result$underlying_price
+
+options_data$result$greeks
+
+```
+```{r}
+eth_data <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2018-01-01", to = "2023-12-31")
+eth_data <- eth_data |> janitor::clean_names()
+eth_data <- data.frame(eth_data) |> 
+  mutate(Return = log(eth_usd_close / lag(eth_usd_close))) |> 
+  na.omit() 
+spec <- ugarchspec(
+  variance.model = list(model = "fGARCH", submodel = "NGARCH",
+                        garchOrder = c(1, 1)), 
+  mean.model = list(armaOrder = c(1, 1)),    
+  distribution.model = "norm"                
+)
+
+fit <- ugarchfit(spec, eth_data['Return'])
+eth_data_new <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2024-01-01", to = "2024-11-22")
+eth_data_new <- eth_data_new |> janitor::clean_names()
+eth_data_new <- data.frame(eth_data_new) 
+eth_data_new <- xts(eth_data_new,order.by = as.Date(rownames(eth_data_new)))
+S0 <- as.numeric(eth_data_new["2024-01-01"]$eth_usd_close)
+T <- 26         
+sig<-  sigma(ugarchforecast(fit, n.ahead = T))
+K <- 2700
+r <- uncmean(fit)    
+N <- 5000  
+confidence_level <- 0.95  
+call <- rep(0,N)
+put <- rep(0,N)
+ST_list <- rep(0,N)
+ls <- c()
+for(i in 1:N){
+  
+  Z <- rnorm( T,0,1 ) 
+  ST <- S0 * exp(r+ - 0.5 * sig[1]**2  + sig [1] * Z[1])
+  call_temp <- exp(-r * 1) * pmax(ST - K, 0) 
+  ST_1 <- ST
+  for(j in 2:T){
+    ST <- ST_1 * exp(r+ - 0.5 * sig[j]**2  + sig [j] * Z[j])
+    ls <-  c(  ls,exp(-r * j) * pmax(ST - K, 0) - call_temp)
+    call_temp <- exp(-r * j) * pmax(ST - K, 0) 
+    ST_1 <- ST
+  }
+  ST_list[i] <- ST 
+  call[i] <- exp(-r * T) * pmax(ST - K, 0)
+}
+```
+```{r}
+hist(ls,freq =T,breaks=30)
+quantile(ls,1-confidence_level)
+```
+```{r}
+call_data <- data.frame(call = call)
+mean_call <- mean(call)
+mean_call
+ggplot(call_data, aes(x = call)) +
+  geom_histogram(bins =  100, fill = "steelblue", color = "black", alpha = 0.7) + 
+  geom_vline(aes(xintercept = mean_call), color = "red", linetype = "dashed", linewidth = 1) 
+```
+
+
+
+```{r}
+S0 <- as.numeric(eth_data_new["2024-01-01"]$eth_usd_close)
+T <- 25         
+sig<-  sigma(ugarchforecast(fit, n.ahead = T))
+K <- 2500
+r <- uncmean(fit)    
+N <- 1000  
+confidence_level <- 0.95  
+call <- rep(0,N)
+put <- rep(0,N)
+ST_list <- rep(0,T)
+ls <- c()
+ST <- rep(S0,N)
+for(i in 1:T){
+  
+  Z <- rnorm( T,0,1 ) 
+  ST <- ST * exp(r+ - 0.5 * sig[i]**2  + sig [i] * Z[i])
+  ST_list[i] <- mean(ST)
+}
+ST_list
+moneyness<- ST_list/K
+moneyness
+
+sig
+data <- data.frame(sigma = log(sig), moneyness = moneyness)
+
+
+# Vẽ đồ thị
+ggplot(data, aes(y = sigma, x = moneyness)) +
+  geom_line(size = 1) 
+```
+
+
 
 
 
