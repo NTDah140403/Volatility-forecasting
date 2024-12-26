@@ -1,0 +1,477 @@
+```{r setup, include=FALSE}
+library(vrtest)
+library(tseries)
+library(quantmod) 
+library(forecast)
+library(ggplot2) 
+library(ggfortify)
+library(dplyr)
+library(gridExtra)
+library(rugarch)
+library(FinTS) 
+library(daltoolbox) 
+library(harbinger) 
+library(moments) 
+library(garchx) 
+library(tidyr) 
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+# Data
+
+```{r}
+eth_data <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2018-01-01", to = "2023-12-30")
+eth_data <- eth_data |> janitor::clean_names()
+chartSeries(eth_data)
+```
+
+# EDA
+
+```{r}
+eth_returns <- data.frame(eth_data) |> 
+  mutate(Return = log(eth_usd_close / lag(eth_usd_close) ),
+         Date = as.Date(index(eth_data)),
+                        month = format(Date,"%m"),
+         year =format(Date,"%Y")
+         ) |>   na.omit() 
+eth_returns.xts <- xts(eth_returns, order.by = eth_returns$Date)
+```
+```{r}
+summary_stats <- data.frame(
+  Metric = c("Mean", "Std. Dev.", "Median", "Min", "Max", "Skewness", "Kurtosis"),
+  Value = c(mean(eth_returns$Return), sd(eth_returns$Return), median(eth_returns$Return), min(eth_returns$Return), max(eth_returns$Return), skewness(eth_returns$Return), kurtosis(eth_returns$Return)
+)
+)
+print(summary_stats)
+```
+```{r}
+ggplot(data = eth_returns,aes(x = Date, y = Return))+geom_line()
+ggplot(eth_returns, aes(x = Return)) +
+  geom_histogram(aes(y = ..density..), bins = 30, fill = "skyblue", color = "black", alpha = 0.7) +
+  geom_density(color = "red", size = 1) +
+  stat_function(fun = dnorm, args = list(mean = mean(eth_returns$Return), sd = sd(eth_returns$Return)), 
+                color = "blue", linetype = "dashed") +
+  labs(
+    title = "Histogram and Density of Log-Returns",
+    x = "Log Returns",
+    y = "Density"
+  ) +
+  theme_minimal()
+```
+```{r}
+
+ggplot(data = eth_returns,aes(x = Date, y = Return))+geom_line()+facet_wrap(~year,scales="free_x",  ncol=2)
+ggplot(data = eth_returns,aes(x = Return))+geom_histogram(aes(y = ..density..),bins = 100, fill = "skyblue") +stat_density(geom = "line", color = "blue", size = 1)+facet_wrap(~year,  ncol=2)
+
+```
+```{r}
+
+acf_values <- acf(eth_returns$Return,plot = F)
+acf_df <- acf_df <- data.frame(lag = acf_values$lag, acf = acf_values$acf)
+
+acfplot <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(eth_returns$Return)), 1.96/sqrt(length(eth_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (ACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+pacf_values <- pacf(eth_returns$Return**2,plot = F)
+pacf_df <- pacf_df <- data.frame(lag = pacf_values$lag, acf = pacf_values$acf)
+
+pacfplot <- ggplot(pacf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(eth_returns$Return)), 1.96/sqrt(length(eth_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (PACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+grid.arrange( acfplot,pacfplot,ncol = 1)
+
+```
+
+```{r}
+acf_values <- acf(eth_returns$Return,plot = F)
+acf_df <- acf_df <- data.frame(lag = acf_values$lag, acf = acf_values$acf)
+
+acfplot <- ggplot(acf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(eth_returns$Return)), 1.96/sqrt(length(eth_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (ACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+pacf_values <- pacf(eth_returns$Return**2,plot = F)
+pacf_df <- pacf_df <- data.frame(lag = pacf_values$lag, acf = pacf_values$acf)
+
+pacfplot <- ggplot(pacf_df, aes(x = lag, y = acf)) +
+  geom_bar(stat = "identity", fill = "skyblue") +
+  geom_hline(yintercept = c(-1.96/sqrt(length(eth_returns$Return)), 1.96/sqrt(length(eth_returns$Return))), 
+             linetype = "dashed", color = "red") +
+  labs(title = "Autocorrelation Function (PACF)", x = "Lag", y = "ACF") +
+  theme_minimal()
+
+grid.arrange( acfplot,pacfplot,ncol = 1)
+```
+# Modeling
+## Normal distibution
+```{r}
+spec=ugarchspec(variance.model = list(model="sGARCH",garchOrder = c(1, 1)), mean.model = list(armaOrder = c(1,0,0)), distribution.model = 'norm') 
+def.fit = ugarchfit(spec = spec, data = eth_returns["Return"])
+print(def.fit)
+aic_value <- infocriteria(def.fit)["Akaike", ]  # Akaike Information Criterion
+bic_value <- infocriteria(def.fit)["Bayes", ]   # Bayesian Information Criterion
+
+# Print the AIC and BIC values
+cat("AIC:", aic_value, "\n")
+cat("BIC:", bic_value, "\n")
+```
+
+```{r}
+plot(def.fit,which = 1)
+```
+
+
+```{r}
+par(mfrow = c(1,2))
+plot(def.fit,which = 8)
+plot(def.fit,which = 9)
+```
+
+## Student's t-dsitribution
+```{r}
+spec2=ugarchspec(variance.model = list(model="sGARCH",garchOrder = c(1, 1)), mean.model = list(armaOrder = c(1,0,0)), distribution.model = 'std') 
+def.fit2 = ugarchfit(spec = spec2, data = eth_returns["Return"])
+print(def.fit2)
+aic_value <- infocriteria(def.fit2)["Akaike", ]  # Akaike Information Criterion
+bic_value <- infocriteria(def.fit2)["Bayes", ]   # Bayesian Information Criterion
+
+# Print the AIC and BIC values
+cat("AIC:", aic_value, "\n")
+cat("BIC:", bic_value, "\n")
+```
+
+```{r}
+plot(def.fit2,which = 1)
+```
+
+
+```{r}
+par(mfrow = c(1,2))
+plot(def.fit2,which = 8)
+plot(def.fit2,which = 9)
+```
+
+## Comparing norm vs std
+```{r}
+volatilityGarch <- data.frame(coredata(eth_returns), VolatilityGarch = sigma(def.fit), VolatilityGarchStd = sigma(def.fit2))
+volatilityGarch_long <- pivot_longer(
+  volatilityGarch,
+  cols = c(VolatilityGarch, VolatilityGarchStd),
+  names_to = "Volatility_Type",
+  values_to = "Volatility_Value"
+)
+
+# Plot
+volatilityPlotGarch <- ggplot(volatilityGarch_long, aes(x = Date)) +
+  geom_line(aes(y = Return), color = "skyblue", linewidth = .5) +
+  geom_line(aes(y = Volatility_Value, color = Volatility_Type), linewidth = .5) +
+  labs(
+    title = "Garch(1,1): Volatility Comparison",
+    y = "Volatility / Return",
+    x = "Date",
+    color = "Volatility Type"
+  ) +
+  theme_minimal() +
+  scale_color_manual(
+    values = c("VolatilityGarch" = "darkblue", "VolatilityGarchStd" = "darkred"),
+    labels = c("GARCH Volatility", "GARCH Volatility (with std) ")
+  )
+
+# Display plot
+volatilityPlotGarch
+
+```
+Unconditional moment 
+```{r}
+uncvariance(def.fit)
+uncmean(def.fit)
+```
+Unconditional moment (Student's t-distribution)
+```{r}
+uncvariance(def.fit2)
+uncmean(def.fit2)
+```
+
+### Forecasting
+```{r}
+forecast_horizon <- 1000 
+garch_forecast <- ugarchforecast(def.fit, n.ahead = forecast_horizon)
+forecast_volatility <- sigma(garch_forecast)
+
+forecast_data <- data.frame(
+  Step = 1:forecast_horizon, 
+  Predicted_Volatility = forecast_volatility[1:forecast_horizon] 
+)
+
+garch_forecast2 <- ugarchforecast(def.fit2, n.ahead = forecast_horizon)
+forecast_volatility2 <- sigma(garch_forecast2)
+
+forecast_data2 <- data.frame(
+  Step = 1:forecast_horizon,           
+  Predicted_Volatility_Std = forecast_volatility2[1:forecast_horizon], # Forecasted volatility (Student's t)
+  Predicted_Volatility_Normal = forecast_volatility[1:forecast_horizon] # From def.fit
+)
+
+# Plot the forecasted volatilities
+ggplot(forecast_data2, aes(x = Step)) +
+  geom_line(aes(y = Predicted_Volatility_Normal, color = "Normal GARCH"), size = 1) +
+  geom_line(aes(y = Predicted_Volatility_Std, color = "Student's t GARCH"), size = 1) +
+  labs(
+    title = "Forecasted Volatility: GARCH Models",
+    x = "Forecast Step",
+    y = "Predicted Volatility",
+    color = "Model Type"
+  ) +
+  scale_color_manual(
+    values = c("Normal GARCH" = "blue", "Student's t GARCH" = "red")
+  ) +
+  theme_minimal()
+```
+
+### Forecasting in test
+
+```{r}
+eth_data_new <- getSymbols("ETH-USD", src = "yahoo", auto.assign = FALSE, 
+                       from = "2024-01-01", to = "2024-11-18")
+eth_data_new <- eth_data_new |> janitor::clean_names()
+eth_data_new <- data.frame(eth_data_new) |> 
+  mutate(Return = log((eth_usd_close / lag(eth_usd_close)))) |> 
+  na.omit() 
+eth_data_new <- eth_data_new |> mutate(Date = as.Date(rownames(eth_data_new)),rollingsd = runSD(eth_data_new$Return, n = 30) )
+```
+```{r}
+progarchspec <- spec
+progarchspec2 <- spec2
+setfixed(progarchspec) <- as.list(coef(def.fit))
+setfixed(progarchspec2) <- as.list(coef(def.fit2))
+garchfilter <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspec)
+garchfilter2 <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspec2)
+eth_data_new <- eth_data_new |> mutate(garch_vol_norm = sigma(garchfilter),
+                                       garch_vol_std = sigma(garchfilter2))
+ggplot(eth_data_new, aes(x = Date)) +
+  geom_line(aes(y = rollingsd, color = "Rolling SD")) +
+  geom_line(aes(y = garch_vol_norm, color = "GARCH Vol Norm")) +
+  geom_line(aes(y = garch_vol_std, color = "GARCH Vol Std")) +
+  labs(y = "Volatility", x = "Date") +
+  scale_color_manual(values = c("Rolling SD" = "blue", 
+                               "GARCH Vol Norm" = "red", 
+                               "GARCH Vol Std" = "green")) +
+  theme_minimal()
+```
+
+
+## Impact of distribution on different time periods
+```{r}
+
+specv1 <- ugarchspec(variance.model = list(model = "sGARCH",garchOrder = c(1, 1)), 
+                   mean.model = list(armaOrder = c(1, 1)),distribution.model = "norm")
+
+
+fit1 <- ugarchfit(spec = specv1, data = eth_returns.xts["2018-01/2018-03"]$Return)
+fit2 <- ugarchfit(spec = specv1, data = eth_returns.xts["2018-01/2018-06"]$Return)
+fit3 <- ugarchfit(spec = specv1, data = eth_returns.xts["2018"]$Return)
+fit4 <- ugarchfit(spec = specv1, data = eth_returns.xts$Return)
+
+print("3 months:")
+mean(residuals(fit1)**2)
+print("6 months:")
+mean(residuals(fit2)**2)
+print("1 year:")
+mean(residuals(fit3)**2)
+print("6 years:")
+mean(residuals(fit4)**2)
+
+specv2 <- ugarchspec(variance.model = list(model = "sGARCH",garchOrder = c(1, 1)), 
+                   mean.model = list(armaOrder = c(1, 1)),distribution.model = "std")
+fit5 <- ugarchfit(spec = specv2, data = eth_returns.xts["2018-01/2018-03"]$Return)
+fit6 <- ugarchfit(spec = specv2, data = eth_returns.xts["2018-01/2018-06"]$Return)
+fit7 <- ugarchfit(spec = specv2, data = eth_returns.xts["2018"]$Return)
+fit8 <- ugarchfit(spec = specv2, data = eth_returns.xts$Return)
+
+print("3 months:")
+mean(residuals(fit5)**2)
+print("6 months:")
+mean(residuals(fit6)**2)
+print("1 year:")
+mean(residuals(fit7)**2)
+print("6 years:")
+mean(residuals(fit8)**2)
+```
+```{r}
+par(mfrow = c(2,2))
+
+plot(fit1,which = 1)
+plot(fit2,which = 1)
+plot(fit3,which = 1)
+plot(fit4,which = 1)
+
+
+```
+```{r}
+par(mfrow = c(2,2))
+plot(fit5,which = 1)
+plot(fit6,which = 1)
+plot(fit7,which = 1)
+plot(fit8,which = 1)
+
+
+```
+```{r}
+
+progarchspecv1 <- specv1
+progarchspecv5 <- specv2
+setfixed(progarchspecv1) <- as.list(coef(fit1))
+setfixed(progarchspecv5) <- as.list(coef(fit5))
+garchfilterv1 <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspecv1)
+garchfilterv5 <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspecv5)
+eth_data_new_2 <- eth_data_new |> mutate(garch_vol_norm = sigma(garchfilterv1),
+                                       garch_vol_std = sigma(garchfilterv5))
+ggplot(eth_data_new_2, aes(x = Date)) +
+  geom_line(aes(y = Return, color = "Return")) +
+  geom_line(aes(y = garch_vol_norm, color = "GARCH Vol Norm")) +
+  geom_line(aes(y = garch_vol_std, color = "GARCH Vol Std")) +
+  labs(y = "Value", x = "Date",title  = "3-months") +
+  scale_color_manual(values = c("Return" = "blue", 
+                               "GARCH Vol Norm" = "red", 
+                               "GARCH Vol Std" = "green")) +
+  theme_minimal()
+```
+```{r}
+
+progarchspecv3 <- specv1
+progarchspecv7 <- specv2
+setfixed(progarchspecv3) <- as.list(coef(fit3))
+setfixed(progarchspecv7) <- as.list(coef(fit7))
+garchfilterv3 <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspecv3)
+garchfilterv7 <- ugarchfilter(data = eth_data_new["Return"], spec = progarchspecv7)
+eth_data_new_3 <- eth_data_new |> mutate(garch_vol_norm = sigma(garchfilterv3),
+                                       garch_vol_std = sigma(garchfilterv7))
+ggplot(eth_data_new_3, aes(x = Date)) +
+  geom_line(aes(y = Return, color = "Return")) +
+  geom_line(aes(y = garch_vol_norm, color = "GARCH Vol Norm")) +
+  geom_line(aes(y = garch_vol_std, color = "GARCH Vol Std")) +
+  labs(y = "Value", x = "Date",title  = "1 year") +
+  scale_color_manual(values = c("Return" = "blue", 
+                               "GARCH Vol Norm" = "red", 
+                               "GARCH Vol Std" = "green")) +
+  theme_minimal()
+```
+
+
+
+## Var of short call in option market
+
+
+```{r}
+spec <- ugarchspec(variance.model = list(model = "sGARCH",garchOrder = c(1, 1)), 
+                    distribution.model = "norm",
+                   mean.model = list(armaOrder = c(1, 1)))
+
+fit <- ugarchfit(spec = spec, data = eth_returns$Return)
+S0 <- as.numeric(eth_returns.xts$eth_usd_close["2023-12-30"])
+S0
+T <- 30         
+sig<-  sigma(ugarchforecast(fit, n.ahead = T))
+K <- 2200
+r <- uncmean(fit)    
+N <- 1000  
+confidence_level <- 0.95  
+call <- rep(0,N)
+put <- rep(0,N)
+ST_list <- rep(0,N)
+ls <- c()
+Z <- rnorm( N,0,1 ) 
+ST_list <- S0 * exp(r + sig [1] * Z)
+call_list_old <- exp(-r * 1) * pmax(ST_list - K, 0) 
+for(j in 2:T){
+  Z <- rnorm( N,0,1 ) 
+  ST_list <- ST_list * exp(r  + sig [j] * Z)
+  call_list <- exp(-r * j) * pmax(ST_list - K, 0) 
+  ls <- rbind(ls,call_list - call_list_old)
+  call_list_old <-call_list
+}
+hist(ls, breaks = 100)
+quantile(ls,1 -confidence_level)
+```
+
+
+## Anomaly in Garch
+```{r}
+spec <- ugarchspec(variance.model = list(model = "sGARCH",garchOrder = c(1, 1)), 
+                   mean.model = list(armaOrder = c(1, 1)),distribution.model = "norm")
+
+
+fit<- ugarchfit(spec = spec, data = eth_returns["Return"])
+std_residuals <- residuals(fit,standardize =T)
+
+
+
+hist(std_residuals,breaks = 100)
+```
+```{r}
+outliers <- which(abs(std_residuals) > 3)  
+
+
+data <- eth_returns |> mutate(abs_residuals =abs(std_residuals),outlier = ifelse(index(eth_returns) %in% outliers, "Outlier", "Normal"))
+
+
+ggplot(data, aes(x = Date, y = Return)) +
+  geom_line(color = "blue") +  
+  geom_point(data = subset(data, outlier == "Outlier"), 
+             aes(x = Date, y = Return), color = "red", size = 1) + 
+  labs(title = "Anomaly plot", 
+       x = "ts", y = "return") +
+  theme_minimal()
+```
+```{r}
+ggplot(data, aes(x = Date, y = abs_residuals)) +
+  geom_line(color = "blue") + 
+  geom_point(data = subset(data, outlier == "Outlier"), 
+             aes(x = Date, y = abs_residuals), color = "red", size = 1) +
+  labs(title = "Absolute residual plot", 
+       x = "ts", y = "Residual") +
+  theme_minimal()
+
+```
+```{r}
+boxplot(std_residuals, main = "residuals boxplot")
+```
+```{r}
+lower <-quantile(std_residuals,0.25) - 1.5*IQR(std_residuals)
+upper <-quantile(std_residuals,0.75) + 1.5*IQR(std_residuals)
+
+data2 <- eth_returns |> mutate(abs_residuals =abs(std_residuals),outlier = ifelse(std_residuals > upper |  std_residuals < lower, "Outlier", "Normal"))
+ggplot(data2, aes(x = Date, y = Return)) +
+  geom_line(color = "blue") +  
+  geom_point(data = subset(data2, outlier == "Outlier"), 
+             aes(x = Date, y = Return), color = "red", size = 1) + 
+  labs(title = "Anomaly plot", 
+       x = "ts", y = "return") +
+  theme_minimal()
+```
+
+```{r}
+ggplot(data2, aes(x = Date, y = abs_residuals)) +
+  geom_line(color = "blue") + 
+  geom_point(data = subset(data2, outlier == "Outlier"), 
+             aes(x = Date, y = abs_residuals), color = "red", size = 1) +
+  labs(title = "Absolute residual plot", 
+       x = "ts", y = "Residual") +
+  theme_minimal()
+```
+
+
+
